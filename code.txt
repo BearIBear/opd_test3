@@ -1,10 +1,9 @@
 ORG 0x6D2
 JUMP $ITER
 ORG 0x6D3
-ARRAY: WORD 0x0200, 0x0300, 14 DUP (?) ; 0000 0010 0000 0000
+ARRAY: WORD 0x0200, 0x0300, 0xFFFF, 13 DUP (?) ; 0000 0010 0000 0000
 NUM_PTR: WORD $ARRAY
 LENGTH: WORD 16
-INDEX: WORD 1 ; Индекс в программе не используется, но для хорошего тона добавим его
 NUM: WORD ?
 NUM32_2: WORD ? ; Двойка - это младшее слово, то-есть FFFE 1000 <-- эта часть
 NUM32_1: WORD ? ; Единица - старшее, то-есть эта часть --> FFFE 1000
@@ -12,17 +11,21 @@ CHECK_SIGN_MASK: WORD 0x0200 ; Маска, чтобы оставить ране�
 MINUS_MASK: WORD 0xFE00 ; Маска для отрицательных чисел, чтобы расширить их до 16 бит
 M_TIMES: WORD 9 ; Количество итераций для умножения числа в функции
 CONSTANT: WORD 328 ; Константа, которую нужно добавить
+NULL_TRASH_MASK: WORD 0x3FF ; Маска для отбрасывания мусорных битов
 
 ORG 0x700
 ITER:
   CLA
-  ST $NUM32_1
-  St $NUM32_2
-  LD (NUM_PTR)+ ; hgf
+  ST $NUM32_1 ; Очистим наши текущие слова
+  ST $NUM32_2
+  LD (NUM_PTR)+ ; Загрузим новое число
+  AND $NULL_TRASH_MASK
+  ST $NUM
   EXTEND_SIGN: AND $CHECK_SIGN_MASK ; Проверяем минус 10-разрядного числа
     BEQ POS ; Если минуса нет, то не расширяем знак
     OR $MINUS_MASK ; Если минус есть, то расширяем знак до всех остальных битов
-    POS: ST $NUM
+    POS: OR $NUM
+    ST $NUM
   CONVERT_TO_32:
     ST $NUM32_2 ; Помещаем число в младшее слово
     BPL POS32 
@@ -32,17 +35,36 @@ ITER:
     POS32: CLA ; Если наше число положительное, то расширяем его старшее слово нулями
       ST $NUM32_1
   MULTIPLY_BY_NINE:
-    LD #9 ; Загружаем количество итераций
-    ST $M_TIMES ; Тратим просто так ресурсы вместо того, чтобы сделать ВОРД 9
-    M_ITER:
-      LD $NUM32_2 ; Складываем младшие слова как завещал на первой лекции Клименков
-      ADD $NUM
-      ST $NUM32_2
-      LD $NUM32_1 ; Складываем старшие слова, учитывая прошлый Carry Flag
-      ADC #0 ; Ноль, потому что старшего слова у NUM нету, оно только из младшего
-      ST $NUM32_1
-      LOOP $M_TIMES ; Повторяем процедуру 9 раз
-      JUMP $M_ITER
+    LD $NUM32_2 ; Выполним умножение на 8 при помощи чередующихся ASL и ROL
+    ASL ; Умножаем наше число на 2
+    ST $NUM32_2
+    LD $NUM32_1
+    ROL ; Сдвиг переносим на старшее слово
+    ST $NUM32_1
+    LD $NUM32_2
+    ASL
+    ST $NUM32_2
+    LD $NUM32_1
+    ROL
+    ST $NUM32_1
+    LD $NUM32_2
+    ASL
+    ST $NUM32_2
+    LD $NUM32_1
+    ROL
+    ST $NUM32_1
+    LD $NUM32_2 ; Вручную добавим 1 последнее число
+    ADD $NUM
+    ST $NUM32_2
+    LD $NUM
+    BPL POS_ADD
+    LD $NUM32_1 ; Добавим отрицательную часть нашего M к старшему слову
+    ADC #0xFF
+    ST $NUM32_1
+    JUMP $SUM_WITH_328
+    POS_ADD: LD $NUM32_1
+    ADC #0
+    ST $NUM32_1
   SUM_WITH_328:
     LD $NUM32_2 ; Берём младшее слово
     ADD $CONSTANT ; Складываем с константой = 328
@@ -57,9 +79,9 @@ HLT
 
 ORG 0x3E0
 JUMP $ITER
-SAVE_RES: LD $NUM32_1 ; Сначала сохраняем младшее слово
+SAVE_RES: LD $NUM32_2 ; Сначала сохраняем младшее слово
   ST (RES_PTR)+ ; Потому что в Little Endian: Младшее Слово, Старшее Слово 
-  LD $NUM32_2 ; Теперь старшее
+  LD $NUM32_1 ; Теперь старшее
   ST (RES_PTR)+
   JUMP $CONTINUE
 
